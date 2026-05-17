@@ -184,12 +184,41 @@ description: 주식 관련 뉴스를 빠르게 모아서 정리합니다. 국장
 
 ## 알려진 도메인 차단/이슈
 
-WebFetch가 차단되는 도메인 — WebSearch 결과의 헤드라인+스니펫으로 대체:
+WebFetch가 작동하지 않는 도메인 — 처음부터 우회 방법을 사용한다.
 
-| 차단 도메인 | 대체 방법 |
-|---|---|
-| `*.naver.com` (네이버 뉴스) | WebSearch 결과 활용 또는 원본 매체 직접 |
-| `finance.naver.com` | WebSearch만 |
+### 🚫 명시적 차단 (403 Forbidden 반환)
+
+| 도메인 | 용도 | 대체 방법 |
+|---|---|---|
+| `bloomberg.com` | 글로벌 시장 뉴스, 매크로 | `WebSearch site:bloomberg.com` → 헤드라인+요약 수집 (본문 X) |
+| `*.naver.com` 계열 | 한국 뉴스 | WebSearch만 사용 / 원본 매체 직접 (한경·매경 등) |
+| `finance.naver.com` | 국내 시세/리서치 | WebSearch만 (한경 컨센서스·FnGuide로 보완) |
+
+### 📱 SPA (JS 렌더링 필요 — WebFetch는 빈 콘텐츠 반환)
+
+| 도메인 | 용도 | 대체 방법 |
+|---|---|---|
+| `saveticker.com` | 미장 뉴스 (오선/SAVE 앱) | 사용자가 모바일 앱 SAVE로 직접 보거나, 아래 미장 대체 사이트 활용 |
+
+> 💡 SPA 사이트는 `WebFetch`가 200 OK를 반환해도 본문은 비어있음 — HTTP 응답만 보고 성공으로 착각하지 말 것.
+
+### ✅ 권장 우회 출처
+
+**미장 뉴스 (WebFetch 잘 됨)**
+- `kr.investing.com/news/stock-market-news` (한국어, 미장+글로벌)
+- `finance.yahoo.com/news` (영문, 가장 빠른 미장 뉴스)
+- `cnbc.com/world/?region=world` (영문 시황)
+- `marketwatch.com/latest-news` (영문, 종목 태그 좋음)
+- `m.finance.daum.net/global` (한국어 간단 요약)
+
+**한국 뉴스 (WebFetch 잘 됨)**
+- `hankyung.com` (한국경제)
+- `mk.co.kr` (매일경제)
+- `edaily.co.kr` (이데일리)
+- `biz.chosun.com` (조선비즈)
+- `news.einfomax.co.kr` (인포맥스 - 시장 데이터 강점)
+
+> 새로운 차단/SPA 도메인을 발견하면 위 표에 추가하고 대체재를 기록할 것.
 
 ## 확장 옵션 (요청 시)
 
