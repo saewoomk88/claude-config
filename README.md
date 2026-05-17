@@ -43,6 +43,7 @@ cd ~/personal/claude-config && git pull
 | 스킬 | 설명 |
 |---|---|
 | [stock-analyst](skills/stock-analyst/SKILL.md) | 국장·미장 종목 7섹션 종합 분석. 생성된 리포트는 별도 `~/personal/stock/reports/`에 저장 |
+| [stock-news](skills/stock-news/SKILL.md) | 주식 뉴스 4가지 모드(Daily Brief·종목별·섹터별·테마별)로 빠르게 수집·정리. 생성된 뉴스는 `~/personal/stock/news/`에 저장 |
 
 ## 관련 레포
 
