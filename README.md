@@ -10,7 +10,7 @@ claude-config/
     └── stock-analyst/   # 국내·해외 주식 분석 스킬
 ```
 
-> 📦 **분석 리포트는 별도 레포**: [~/personal/stock](https://github.com/{username}/stock) ← 푸시 후 링크 갱신
+> 📦 **분석 리포트는 별도 레포**: [~/personal/stock](https://github.com/saewoomk88/stock) ← 푸시 후 링크 갱신
 
 ## 사용 방법
 
@@ -46,4 +46,4 @@ cd ~/personal/claude-config && git pull
 
 ## 관련 레포
 
-- **[stock](https://github.com/{username}/stock)**: 분석 리포트 저장소 — stock-analyst 스킬로 생성한 리포트들이 저장됨
+- **[stock](https://github.com/saewoomk88/stock)**: 분석 리포트 저장소 — stock-analyst 스킬로 생성한 리포트들이 저장됨
