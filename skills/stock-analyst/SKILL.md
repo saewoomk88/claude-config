@@ -122,9 +122,9 @@ description: 국장(KOSPI/KOSDAQ) 또는 미장(NYSE/NASDAQ) 종목의 티커나
 
 ### 5. 리포트 저장 (선택)
 
-`~/personal/claude-config/reports/` 디렉토리가 존재하면, **리포트 출력 후 사용자에게 저장 여부를 한 줄로 묻는다**:
+`~/personal/stock/reports/` 디렉토리가 존재하면, **리포트 출력 후 사용자에게 저장 여부를 한 줄로 묻는다**:
 
-> 💾 `~/personal/claude-config/reports/{YYYY-MM-DD}_{종목코드or티커}_{회사명}.md`로 저장할까요?
+> 💾 `~/personal/stock/reports/{YYYY-MM-DD}_{종목코드or티커}_{회사명}.md`로 저장할까요?
 
 사용자가 "저장", "응", "ㅇㅇ", "save", "yes" 등으로 동의하면:
 - 파일명 규칙: `YYYY-MM-DD_{종목코드 또는 티커}_{영문 회사명 소문자}.md`
