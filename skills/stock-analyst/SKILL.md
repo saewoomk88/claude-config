@@ -169,7 +169,11 @@ description: 국장(KOSPI/KOSDAQ) 또는 미장(NYSE/NASDAQ) 종목의 티커나
 1. 파일 저장: `~/personal/stock/reports/{파일명}.md`
 2. Git commit: `cd ~/personal/stock && git add reports/ && git commit -m "Add {회사명} ({티커}) {분석유형} {날짜}"`
 3. Git push: `git push`
-4. 사용자에게 결과 짧게 알림: 파일 경로 + commit hash + GitHub URL
+4. **노션 업로드**: `python3 ~/personal/claude-config/scripts/upload_notion.py ~/personal/stock/reports/{파일명}.md`
+   - 스크립트가 `~/personal/claude-config/.env` 에서 자동으로 NOTION_TOKEN 로드
+   - 파일명에서 메타데이터(날짜·티커·종류) 추출 → 노션 DB에 페이지 생성
+   - 본문 마크다운 → 노션 블록 자동 변환
+5. 사용자에게 결과 짧게 알림: 파일 경로 + commit hash + GitHub URL + **Notion URL**
 
 **자동 저장을 건너뛰는 경우** (다음 신호 감지 시):
 - 사용자가 "저장하지마", "저장 X", "임시", "테스트", "비교용", "don't save", "save X" 등 명시적 거부

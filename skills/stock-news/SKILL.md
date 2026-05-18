@@ -165,7 +165,10 @@ description: 주식 관련 뉴스를 빠르게 모아서 정리합니다. 국장
 1. 파일 저장: `~/personal/stock/news/{파일명}.md`
 2. Git commit: `cd ~/personal/stock && git add news/ && git commit -m "Add {타입} {날짜}"`
 3. Git push: `git push`
-4. 사용자에게 결과 짧게 알림: 파일 경로 + commit hash + GitHub URL
+4. **노션 업로드**: `python3 ~/personal/claude-config/scripts/upload_notion.py ~/personal/stock/news/{파일명}.md`
+   - 스크립트가 `~/personal/claude-config/.env` 에서 자동으로 NOTION_TOKEN 로드
+   - 본문 마크다운 → 노션 블록 자동 변환 + 메타데이터 자동 추출
+5. 사용자에게 결과 짧게 알림: 파일 경로 + commit hash + GitHub URL + **Notion URL**
 
 **자동 저장을 건너뛰는 경우**:
 - 사용자가 "저장하지마", "저장 X", "임시", "테스트", "don't save" 등 명시적 거부

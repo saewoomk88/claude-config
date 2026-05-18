@@ -48,3 +48,25 @@ cd ~/personal/claude-config && git pull
 ## 관련 레포
 
 - **[stock](https://github.com/saewoomk88/stock)**: 분석 리포트 저장소 — stock-analyst 스킬로 생성한 리포트들이 저장됨
+
+
+## Notion 자동 동기화
+
+생성된 모든 리포트는 노션 데이터베이스로도 자동 업로드됩니다.
+
+### 셋업 (다른 컴퓨터에 적용 시)
+```bash
+# 1. Notion Integration 토큰 발급 (https://www.notion.so/my-integrations)
+# 2. 노션 DB 생성 + Integration 연결 + DB ID 추출
+# 3. .env 파일 생성 (이 레포에는 커밋되지 않음 — .gitignore됨)
+cat > ~/personal/claude-config/.env << EOF
+NOTION_TOKEN=ntn_xxxxxxxxxx
+NOTION_DB_ID=xxxxxxxxxxxxxxxxxx
+EOF
+chmod 600 ~/personal/claude-config/.env
+```
+
+### 수동 업로드
+```bash
+python3 ~/personal/claude-config/scripts/upload_notion.py <리포트.md 경로>
+```

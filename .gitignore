@@ -4,3 +4,7 @@
 .idea/
 .vscode/
 *.tmp
+
+# Secrets - never commit
+.env
+*.token
