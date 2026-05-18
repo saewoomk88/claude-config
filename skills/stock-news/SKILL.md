@@ -150,20 +150,27 @@ description: 주식 관련 뉴스를 빠르게 모아서 정리합니다. 국장
 모든 리포트 마지막에:
 > ⚠️ 본 뉴스 정리는 공개 정보의 요약이며, **투자 권유나 매매 추천이 아닙니다.** 기사 원문 확인 및 투자 판단의 책임은 투자자 본인에게 있습니다.
 
-### 6. 리포트 저장 (선택)
+### 6. 리포트 자동 저장 + Git 커밋 + Push
 
-`~/personal/stock/news/` 디렉토리가 존재하면, 리포트 출력 후 사용자에게 저장 여부를 한 줄로 묻는다:
+`~/personal/stock/news/` 디렉토리가 존재하면, **리포트 출력 후 자동으로 저장 + git commit + push까지 진행한다**.
 
-> 💾 `~/personal/stock/news/{YYYY-MM-DD}_{type}.md`로 저장할까요?
-
-파일명 규칙:
+**파일명 규칙**:
 - Daily Brief: `YYYY-MM-DD_daily-brief.md`
 - 종목별: `YYYY-MM-DD_news_{티커}_{영문회사명}.md`
 - 섹터별: `YYYY-MM-DD_news_sector_{섹터명}.md`
 - 테마별: `YYYY-MM-DD_news_theme_{테마키워드}.md`
+- 같은 날 동일 파일 있으면 `_v2`, `_v3` 추가
 
-같은 날 동일 파일 있으면 `_v2`, `_v3` 추가.
-사용자가 "저장해줘"라고 명시하면 묻지 않고 바로 저장.
+**자동 실행 흐름** (리포트 출력 직후):
+1. 파일 저장: `~/personal/stock/news/{파일명}.md`
+2. Git commit: `cd ~/personal/stock && git add news/ && git commit -m "Add {타입} {날짜}"`
+3. Git push: `git push`
+4. 사용자에게 결과 짧게 알림: 파일 경로 + commit hash + GitHub URL
+
+**자동 저장을 건너뛰는 경우**:
+- 사용자가 "저장하지마", "저장 X", "임시", "테스트", "don't save" 등 명시적 거부
+- 사용자가 가벼운 톤 ("그냥 궁금해서", "한번 보고 싶어")로 요청
+- 단순 질문/답변 형태로 정형 리포트가 생성되지 않은 경우
 
 ## 출력 규칙
 
