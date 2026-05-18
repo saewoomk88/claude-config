@@ -1,11 +1,7 @@
 #!/usr/bin/env python3
-"""
-Upload a markdown report to Notion database.
-Usage: python3 upload_notion.py <md_file_path>
-"""
-import os, sys, re, json, urllib.request
+"""Upload a markdown report to Notion database with proper table + inline formatting."""
+import os, sys, re, json, urllib.request, urllib.error
 from pathlib import Path
-from datetime import datetime
 
 # Auto-load .env if exists
 _env_file = Path(__file__).parent.parent / ".env"
@@ -16,7 +12,6 @@ if _env_file.exists():
             k, v = line.split("=", 1)
             os.environ.setdefault(k.strip(), v.strip())
 
-
 NOTION_TOKEN = os.environ.get("NOTION_TOKEN")
 DB_ID = os.environ.get("NOTION_DB_ID", "364a83b218df808ea27fec1aad14532d")
 GITHUB_REPO_BASE = "https://github.com/saewoomk88/stock/blob/main"
@@ -25,15 +20,95 @@ if not NOTION_TOKEN:
     print("ERROR: NOTION_TOKEN env var required")
     sys.exit(1)
 
+# === 인라인 마크다운 → Notion rich_text 변환 ===
+def inline_to_richtext(text, max_len=1900):
+    """**bold**, [link](url), `code` 처리 → rich_text 배열."""
+    text = text[:max_len]
+    pattern = re.compile(
+        r'(\*\*[^*\n]+?\*\*)'       # **bold**
+        r'|(\[[^\]\n]+?\]\([^\)\n]+?\))'  # [link](url)
+        r'|(`[^`\n]+?`)'             # `code`
+    )
+    parts = []
+    last = 0
+    for m in pattern.finditer(text):
+        if m.start() > last:
+            parts.append({"type": "text", "text": {"content": text[last:m.start()]}})
+        token = m.group(0)
+        if token.startswith('**'):
+            parts.append({
+                "type": "text",
+                "text": {"content": token[2:-2]},
+                "annotations": {"bold": True}
+            })
+        elif token.startswith('['):
+            mm = re.match(r'\[([^\]]+)\]\(([^\)]+)\)', token)
+            if mm:
+                parts.append({
+                    "type": "text",
+                    "text": {"content": mm.group(1), "link": {"url": mm.group(2)}}
+                })
+        elif token.startswith('`'):
+            parts.append({
+                "type": "text",
+                "text": {"content": token[1:-1]},
+                "annotations": {"code": True}
+            })
+        last = m.end()
+    if last < len(text):
+        parts.append({"type": "text", "text": {"content": text[last:]}})
+    return parts if parts else [{"type": "text", "text": {"content": text}}]
+
+
+def cell_to_richtext(cell_text):
+    """테이블 셀 텍스트 → rich_text (인라인 포맷 포함)."""
+    return inline_to_richtext(cell_text.strip(), max_len=1900)
+
+
+def parse_table(lines, start_idx):
+    """마크다운 테이블 파싱. (table_block, next_idx) 반환."""
+    rows = []
+    i = start_idx
+    while i < len(lines) and lines[i].strip().startswith('|'):
+        line = lines[i].strip()
+        # 구분 행 (|---|---|...) 스킵
+        if re.match(r'^\|[\s\-:|]+\|?\s*$', line):
+            i += 1
+            continue
+        # 셀 분리: 양 끝 | 제거 후 | 로 split
+        cells = [c.strip() for c in line.strip('|').split('|')]
+        rows.append(cells)
+        i += 1
+    
+    if not rows:
+        return None, start_idx
+    
+    width = max(len(r) for r in rows)
+    # 짧은 행은 빈 셀로 패딩
+    rows = [r + [''] * (width - len(r)) for r in rows]
+    
+    table_block = {
+        "type": "table",
+        "table": {
+            "table_width": width,
+            "has_column_header": True,
+            "has_row_header": False,
+            "children": [
+                {
+                    "type": "table_row",
+                    "table_row": {
+                        "cells": [cell_to_richtext(cell) for cell in row]
+                    }
+                }
+                for row in rows
+            ]
+        }
+    }
+    return table_block, i
+
+
+# === 메타데이터 추출 ===
 def parse_filename(filename):
-    """Extract metadata from filename. Returns dict with date, ticker, name, kind."""
-    # Patterns:
-    # 2026-05-17_278470_apr.md
-    # 2026-05-18_020150_lotte-energy-materials_chart.md
-    # 2026-05-18_daily-brief.md
-    # 2026-05-18_news_NVDA_nvidia.md
-    # 2026-05-18_news_sector_semiconductor.md
-    # 2026-05-18_news_theme_hbm.md
     stem = Path(filename).stem
     parts = stem.split('_')
     meta = {'date': parts[0], 'ticker': '', 'company': '', 'kind': '종목분석'}
@@ -61,130 +136,130 @@ def parse_filename(filename):
         meta['company'] = '_'.join(parts[2:]) if len(parts) > 2 else ''
     return meta
 
-def detect_market(ticker, content=''):
-    if not ticker or ticker.lower() == 'daily-brief':
-        if '한국' in content[:500] or 'KOSPI' in content[:500]:
-            return '글로벌'
-        return '글로벌'
-    if ticker.isdigit() and len(ticker) == 6:
-        # KOSPI vs KOSDAQ - approximate via first digit
-        return 'KOSPI'  # 대부분 KOSPI로 분류 (정확한 판별은 외부 API 필요)
-    if ticker.isalpha() and len(ticker) <= 5:
-        return 'NASDAQ'  # 대부분 NASDAQ
+
+def detect_market(ticker):
+    if not ticker: return '글로벌'
+    if ticker.isdigit() and len(ticker) == 6: return 'KOSPI'
+    if ticker.isalpha() and len(ticker) <= 5: return 'NASDAQ'
     return '글로벌'
 
+
 def extract_korean_company_name(content):
-    """첫 # 헤딩에서 회사명 추출."""
     m = re.search(r'^# ([^\(\n]+?)(?:\s*\(|$)', content, re.MULTILINE)
-    if m:
-        return m.group(1).strip()
-    return None
+    return m.group(1).strip() if m else None
+
 
 def extract_price_change(content):
-    """현재가와 등락률 추출 (옵션)."""
     price = None
     change = None
-    # 현재가: **404,000원** 또는 **$225.32**
     m = re.search(r'\*\*현재가\*\*\s*[:：|]\s*\*\*\$?([0-9,\.]+)', content)
     if m:
-        try:
-            price = float(m.group(1).replace(',', ''))
+        try: price = float(m.group(1).replace(',', ''))
         except: pass
-    # 등락률: -2.29% / +0.31%
     m = re.search(r'([+-]?[0-9\.]+)\s*%', content)
     if m:
-        try:
-            change = float(m.group(1)) / 100  # Notion percent format = 0.01 == 1%
+        try: change = float(m.group(1)) / 100
         except: pass
     return price, change
 
+
 def extract_tags(content):
-    """본문에서 자주 등장하는 키워드로 태그 추론."""
     tags = []
     text = content.lower()
     if 'hbm' in text: tags.append('HBM')
-    if '반도체' in content or '메모리' in content: 
+    if '반도체' in content or '메모리' in content:
         tags.append('반도체')
         if '메모리' in content and 'HBM' not in tags: tags.append('메모리')
-    if '이차전지' in content or '배터리' in content or '2차전지' in content: tags.append('이차전지')
-    if 'k뷰티' in text or '뷰티' in content or '화장품' in content: tags.append('K뷰티')
+    if '이차전지' in content or '2차전지' in content: tags.append('이차전지')
+    if 'k뷰티' in text or '화장품' in content: tags.append('K뷰티')
     if ' AI' in content or '인공지능' in content or 'gpu' in text: tags.append('AI')
     if '자동차' in content or '전기차' in content: tags.append('자동차')
     return list(set(tags))
 
-def md_lines_to_blocks(text, max_blocks=95):
-    """간단 마크다운 → 노션 블록 변환."""
+
+# === 마크다운 → 블록 변환 (테이블 지원) ===
+def md_to_blocks(text, max_blocks=95):
     blocks = []
     lines = text.split('\n')
+    i = 0
     in_code = False
     code_buffer = []
     code_lang = 'plain text'
     
-    def push_paragraph(t):
-        if not t.strip(): return
-        # 2000자 제한
-        for chunk in [t[i:i+1900] for i in range(0, len(t), 1900)]:
-            blocks.append({
-                "type": "paragraph",
-                "paragraph": {"rich_text": [{"type": "text", "text": {"content": chunk}}]}
-            })
+    valid_langs = {'plain text', 'python', 'bash', 'javascript', 'markdown', 'json', 'shell', 'html', 'css', 'sql'}
     
-    for line in lines:
-        if len(blocks) >= max_blocks:
-            break
-        # 코드 블록 시작/끝
+    while i < len(lines) and len(blocks) < max_blocks:
+        line = lines[i]
+        
+        # 코드 블록
         if line.strip().startswith('```'):
             if not in_code:
                 in_code = True
                 code_lang = line.strip()[3:].strip() or 'plain text'
+                if code_lang not in valid_langs:
+                    code_lang = 'plain text'
                 code_buffer = []
             else:
                 in_code = False
-                content = '\n'.join(code_buffer)[:1900]
+                content_code = '\n'.join(code_buffer)[:1900]
                 blocks.append({
                     "type": "code",
                     "code": {
-                        "rich_text": [{"type": "text", "text": {"content": content}}],
-                        "language": code_lang if code_lang in ['plain text', 'python', 'bash', 'javascript', 'markdown', 'json'] else 'plain text'
+                        "rich_text": [{"type": "text", "text": {"content": content_code}}],
+                        "language": code_lang
                     }
                 })
+            i += 1
             continue
         if in_code:
             code_buffer.append(line)
+            i += 1
             continue
+        
+        # 테이블 (| 로 시작하는 연속 라인)
+        if line.strip().startswith('|') and not line.strip().startswith('|---'):
+            table_block, next_i = parse_table(lines, i)
+            if table_block:
+                blocks.append(table_block)
+                i = next_i
+                continue
+        
         # 헤딩
         if line.startswith('# '):
-            blocks.append({"type": "heading_1", "heading_1": {"rich_text": [{"type":"text","text":{"content": line[2:][:1900]}}]}})
+            blocks.append({"type": "heading_1", "heading_1": {"rich_text": inline_to_richtext(line[2:])}})
         elif line.startswith('## '):
-            blocks.append({"type": "heading_2", "heading_2": {"rich_text": [{"type":"text","text":{"content": line[3:][:1900]}}]}})
+            blocks.append({"type": "heading_2", "heading_2": {"rich_text": inline_to_richtext(line[3:])}})
         elif line.startswith('### '):
-            blocks.append({"type": "heading_3", "heading_3": {"rich_text": [{"type":"text","text":{"content": line[4:][:1900]}}]}})
+            blocks.append({"type": "heading_3", "heading_3": {"rich_text": inline_to_richtext(line[4:])}})
         # 인용
         elif line.startswith('> '):
-            blocks.append({"type":"quote","quote":{"rich_text":[{"type":"text","text":{"content":line[2:][:1900]}}]}})
+            blocks.append({"type": "quote", "quote": {"rich_text": inline_to_richtext(line[2:])}})
         # 불릿
         elif line.lstrip().startswith('- ') or line.lstrip().startswith('* '):
-            txt = line.lstrip()[2:][:1900]
-            blocks.append({"type":"bulleted_list_item","bulleted_list_item":{"rich_text":[{"type":"text","text":{"content":txt}}]}})
-        # 번호
+            blocks.append({"type": "bulleted_list_item", "bulleted_list_item": {"rich_text": inline_to_richtext(line.lstrip()[2:])}})
+        # 번호 리스트
         elif re.match(r'^\d+\.\s', line):
-            txt = re.sub(r'^\d+\.\s', '', line)[:1900]
-            blocks.append({"type":"numbered_list_item","numbered_list_item":{"rich_text":[{"type":"text","text":{"content":txt}}]}})
+            txt = re.sub(r'^\d+\.\s', '', line)
+            blocks.append({"type": "numbered_list_item", "numbered_list_item": {"rich_text": inline_to_richtext(txt)}})
         # 구분선
         elif line.strip() == '---':
-            blocks.append({"type":"divider","divider":{}})
-        # 빈 줄은 스킵
+            blocks.append({"type": "divider", "divider": {}})
+        # 빈 줄 스킵
         elif not line.strip():
-            continue
-        # 일반 텍스트 (테이블 행 포함)
+            pass
+        # 일반 텍스트
         else:
-            push_paragraph(line)
+            blocks.append({"type": "paragraph", "paragraph": {"rich_text": inline_to_richtext(line)}})
+        
+        i += 1
+    
     return blocks[:max_blocks]
 
+
+# === Notion API ===
 def notion_request(method, url, data=None):
     req = urllib.request.Request(
-        url,
-        method=method,
+        url, method=method,
         headers={
             "Authorization": f"Bearer {NOTION_TOKEN}",
             "Notion-Version": "2022-06-28",
@@ -197,6 +272,7 @@ def notion_request(method, url, data=None):
             return json.loads(resp.read().decode())
     except urllib.error.HTTPError as e:
         return json.loads(e.read().decode())
+
 
 def main():
     if len(sys.argv) < 2:
@@ -211,15 +287,14 @@ def main():
     content = md_path.read_text()
     meta = parse_filename(md_path.name)
     company = extract_korean_company_name(content) or meta['company']
-    market = detect_market(meta['ticker'], content)
+    market = detect_market(meta['ticker'])
     price, change = extract_price_change(content)
     tags = extract_tags(content)
     
-    # GitHub URL 계산
-    folder = md_path.parent.name  # reports 또는 news
+    folder = md_path.parent.name
     github_url = f"{GITHUB_REPO_BASE}/{folder}/{md_path.name}"
     
-    # 페이지 제목 만들기
+    # 페이지 제목
     if meta['kind'] == 'Daily Brief':
         title = f"📰 {meta['date']} Daily Brief"
     elif meta['kind'] == '차트':
@@ -229,47 +304,34 @@ def main():
     else:
         title = f"📰 {company} {meta['kind']} — {meta['date']}"
     
-    # 페이지 properties
     properties = {
         "이름": {"title": [{"text": {"content": title}}]},
         "분석일": {"date": {"start": meta['date']}},
         "종류": {"select": {"name": meta['kind']}},
         "GitHub": {"url": github_url},
     }
-    if meta['ticker']:
-        properties["티커"] = {"rich_text": [{"text": {"content": meta['ticker']}}]}
-    if company:
-        properties["회사명"] = {"rich_text": [{"text": {"content": company}}]}
-    if market:
-        properties["시장"] = {"select": {"name": market}}
-    if tags:
-        properties["태그"] = {"multi_select": [{"name": t} for t in tags]}
-    if price is not None:
-        properties["현재가"] = {"number": price}
-    if change is not None:
-        properties["등락률"] = {"number": change}
+    if meta['ticker']: properties["티커"] = {"rich_text": [{"text": {"content": meta['ticker']}}]}
+    if company: properties["회사명"] = {"rich_text": [{"text": {"content": company}}]}
+    if market: properties["시장"] = {"select": {"name": market}}
+    if tags: properties["태그"] = {"multi_select": [{"name": t} for t in tags]}
+    if price is not None: properties["현재가"] = {"number": price}
+    if change is not None: properties["등락률"] = {"number": change}
     
-    # 본문 블록
-    blocks = md_lines_to_blocks(content)
+    blocks = md_to_blocks(content)
     
-    # 페이지 생성
-    page_data = {
+    result = notion_request("POST", "https://api.notion.com/v1/pages", {
         "parent": {"database_id": DB_ID},
         "properties": properties,
         "children": blocks,
-    }
-    
-    result = notion_request("POST", "https://api.notion.com/v1/pages", page_data)
+    })
     
     if result.get('object') == 'error':
         print(f"❌ ERROR: {result.get('message')}")
-        print(f"   Code: {result.get('code')}")
         sys.exit(1)
-    else:
-        page_url = result.get('url', 'N/A')
-        print(f"✅ Uploaded: {title}")
-        print(f"   Notion URL: {page_url}")
-        print(f"   Properties: kind={meta['kind']}, ticker={meta['ticker']}, market={market}, tags={tags}, price={price}, change={change}")
+    print(f"✅ Uploaded: {title}")
+    print(f"   Notion URL: {result.get('url', 'N/A')}")
+    print(f"   Blocks: {len(blocks)}, Tables: {sum(1 for b in blocks if b['type']=='table')}")
+
 
 if __name__ == "__main__":
     main()
