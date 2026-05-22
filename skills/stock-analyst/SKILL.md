@@ -7,6 +7,22 @@ description: 국장(KOSPI/KOSDAQ) 또는 미장(NYSE/NASDAQ) 종목의 티커나
 
 티커 또는 회사명을 입력받아 **회사 개요 / 시세·재무 / 애널리스트 컨센서스 / 차트(기술적 분석) / 동종업계 비교 / 최근 뉴스 / 종합 의견** 7개 섹션으로 분석 리포트를 생성한다.
 
+## 🆕 MCP 우선 사용 (stock-data 서버)
+
+`stock-data` MCP 서버가 등록되어 있다면 **시세·재무·기술적 지표는 MCP를 먼저 사용한다**.
+
+| 섹션 | MCP 도구 | 비고 |
+|---|---|---|
+| 2. 시세 & 재무 스냅샷 | `mcp__stock-data__get_korean_stock(ticker)` 또는 `get_us_stock(ticker)` | 종가, 52주 고저, 시총, 거래량 즉시 |
+| 4. 차트 & 기술적 분석 | 위 도구의 `indicators` 필드 | RSI(14), MACD, MA(5/20/60/120/200), Stochastic, Bollinger 정확 산출 |
+| 수급 (국장 한정) | `mcp__stock-data__get_korean_investor_trading(ticker)` | 외인/기관/개인 5일 |
+| 티커 검색 | `mcp__stock-data__search_korean_ticker(name)` | 회사명 → 종목코드 |
+
+**워크플로우 변화**:
+- MCP 사용 시 차트 섹션의 RSI/MA 추정 금지 — 실제 값으로 직접 인용
+- WebFetch는 **컨센서스(증권사 리포트)·뉴스·정성 분석**용으로 한정
+- FnGuide·Investing.com WebFetch는 PER/PBR/재무제표·애널리스트 목표가용으로 계속 사용
+
 ## 워크플로우
 
 ### 1. 종목 식별

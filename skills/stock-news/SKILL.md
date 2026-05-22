@@ -16,6 +16,27 @@ description: 주식 관련 뉴스를 빠르게 모아서 정리합니다. 국장
 | **섹터별** | "반도체 뉴스", "이차전지 동향", "바이오 뉴스" | 섹터 내 주요 뉴스 + 대장주 영향 |
 | **테마/키워드** | "HBM 뉴스", "양자컴퓨팅", "AI 칩" | 키워드 중심 + 관련 종목 자동 매핑 |
 
+## 🆕 MCP 우선 사용 (stock-data 서버)
+
+`stock-data` MCP 서버가 등록되어 있다면 **시세 데이터는 MCP를 먼저 사용한다** (WebSearch보다 빠르고 정확).
+
+| 데이터 | MCP 도구 | 대체 (MCP 미가용 시) |
+|---|---|---|
+| 한국 종목 OHLCV + 지표 | `mcp__stock-data__get_korean_stock("005930")` | WebSearch + WebFetch |
+| 미국 종목 OHLCV + 지표 | `mcp__stock-data__get_us_stock("NVDA")` | WebSearch + WebFetch |
+| KOSPI/KOSDAQ 지수 | `mcp__stock-data__get_korean_index("KOSPI")` | WebSearch |
+| 외인/기관/개인 수급 | `mcp__stock-data__get_korean_investor_trading("005930")` | WebSearch |
+| 종목 검색 | `mcp__stock-data__search_korean_ticker("삼성")` | WebSearch |
+
+**Daily Brief 시 권장 호출 순서**:
+1. MCP `get_korean_index` → KOSPI / KOSDAQ 종가·등락
+2. MCP `get_korean_stock` → 삼성전자(005930) / SK하이닉스(000660) / 기타 주도주
+3. MCP `get_us_stock` → S&P 500(^GSPC) / NASDAQ(^IXIC) / DOW(^DJI) / NVDA 등
+4. MCP `get_korean_investor_trading` → 주요 종목 수급
+5. WebSearch — 뉴스 헤드라인·정성 정보만 수집 (시세는 MCP에서 이미 확보)
+
+> 💡 뉴스 헤드라인 매체 검색(언제·왜·어떻게)은 여전히 WebSearch가 더 효율적. 숫자(가격·등락·RSI·MA)는 MCP가 정확.
+
 ## 워크플로우
 
 ### 1. 모드 판별 및 시간 범위 결정
