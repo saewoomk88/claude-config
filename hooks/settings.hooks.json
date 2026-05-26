@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "front=$(lsappinfo info -only name \"$(lsappinfo front)\" 2>/dev/null); case \"$front\" in *Ghostty*) ;; *) /opt/homebrew/bin/terminal-notifier -title 'Claude Code' -message '응답이 완료되었습니다' -appIcon '/Users/woom/personal/cat_1.png' >/dev/null 2>&1; afplay /System/Library/Sounds/Glass.aiff >/dev/null 2>&1 ;; esac; true"
+            "command": "front=$(lsappinfo info -only name \"$(lsappinfo front)\" 2>/dev/null); case \"$front\" in *Ghostty*) ;; *) /opt/homebrew/bin/terminal-notifier -title 'Claude Code' -message '응답이 완료되었습니다' >/dev/null 2>&1; afplay /System/Library/Sounds/Glass.aiff >/dev/null 2>&1 ;; esac; true"
           }
         ]
       }
