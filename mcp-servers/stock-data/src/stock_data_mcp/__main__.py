@@ -176,37 +176,50 @@ def get_us_stock(ticker: str, date: str | None = None) -> dict[str, Any]:
 
 @mcp.tool()
 def get_korean_index(index_name: str = "KOSPI", date: str | None = None) -> dict[str, Any]:
-    """Get Korean market index (KOSPI / KOSDAQ / KOSPI200).
+    """Get Korean market index (KOSPI / KOSDAQ / KOSPI200) via Yahoo Finance.
+
+    pykrx의 KRX 지수 API는 최신 버전부터 KRX_ID/KRX_PW 인증을 요구하므로
+    yfinance(무인증) 기반으로 전환했다. 종목 OHLCV는 여전히 pykrx 사용.
 
     Args:
         index_name: "KOSPI" | "KOSDAQ" | "KOSPI200"
         date: YYYY-MM-DD. Defaults to most recent trading day.
     """
-    code_map = {"KOSPI": "1001", "KOSDAQ": "2001", "KOSPI200": "1028"}
-    code = code_map.get(index_name.upper())
-    if not code:
+    yf_map = {"KOSPI": "^KS11", "KOSDAQ": "^KQ11", "KOSPI200": "^KS200"}
+    symbol = yf_map.get(index_name.upper())
+    if not symbol:
         return {"error": f"Unknown index: {index_name}. Use KOSPI / KOSDAQ / KOSPI200"}
 
-    end_date = date.replace("-", "") if date else _today()
-    start_date = _days_ago(30)
+    t = yf.Ticker(symbol)
+    if date:
+        end = datetime.strptime(date, "%Y-%m-%d") + timedelta(days=1)
+        start = end - timedelta(days=60)
+        hist = t.history(start=start.strftime("%Y-%m-%d"), end=end.strftime("%Y-%m-%d"))
+    else:
+        hist = t.history(period="5d")
 
-    df = krx.get_index_ohlcv(start_date, end_date, code)
-    if df.empty:
-        return {"error": f"No index data for {index_name}"}
+    if hist.empty:
+        return {"error": f"No data for {index_name} via yfinance"}
 
-    last = df.iloc[-1]
-    prev = df.iloc[-2] if len(df) > 1 else last
-    change = round(float(last["종가"] - prev["종가"]), 2)
-    change_pct = round((last["종가"] - prev["종가"]) / prev["종가"] * 100, 2)
+    last = hist.iloc[-1]
+    prev = hist.iloc[-2] if len(hist) > 1 else last
+    change = round(float(last["Close"] - prev["Close"]), 2)
+    change_pct = round((last["Close"] - prev["Close"]) / prev["Close"] * 100, 2)
+    vol_val = last.get("Volume", 0)
+    try:
+        volume = int(vol_val) if vol_val is not None else 0
+    except (ValueError, TypeError):
+        volume = 0
 
     return {
         "index": index_name.upper(),
-        "date": _fmt(df.index[-1].strftime("%Y%m%d")),
-        "open": round(float(last["시가"]), 2),
-        "high": round(float(last["고가"]), 2),
-        "low": round(float(last["저가"]), 2),
-        "close": round(float(last["종가"]), 2),
-        "volume": int(last["거래량"]),
+        "symbol": symbol,
+        "date": hist.index[-1].strftime("%Y-%m-%d"),
+        "open": round(float(last["Open"]), 2),
+        "high": round(float(last["High"]), 2),
+        "low": round(float(last["Low"]), 2),
+        "close": round(float(last["Close"]), 2),
+        "volume": volume,
         "change": change,
         "change_pct": change_pct,
     }
