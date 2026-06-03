@@ -291,6 +291,223 @@ def get_korean_investor_trading(ticker: str, date: str | None = None) -> dict[st
         return {"error": f"pykrx fetch failed: {e}"}
 
 
+def _safe(v, default=None):
+    """Cast numpy/NaN/None to a clean python float, else default."""
+    try:
+        if v is None:
+            return default
+        f = float(v)
+        return default if f != f else f  # NaN check
+    except (ValueError, TypeError):
+        return default
+
+
+def _series_list(df, label, n=5, scale=1.0):
+    """Extract one statement row as [latest..older] (scaled, rounded)."""
+    try:
+        if df is not None and not df.empty and label in df.index:
+            return [round(v / scale, 2) if pd.notna(v) else None for v in df.loc[label].tolist()[:n]]
+    except Exception:
+        pass
+    return []
+
+
+@mcp.tool()
+def get_us_financials(ticker):
+    """Deep fundamentals for a US stock: 5yr income/cashflow trends, key ratios,
+    and DCF-ready inputs. Complements get_us_stock (price/technicals) for fundamental study.
+
+    Args:
+        ticker: US stock ticker (e.g., "NVDA", "AAPL").
+
+    Returns:
+        dict with profile, valuation, profitability(ROE/ROA/ROIC/margins), growth,
+        health(debt/cash/ratios), trends_billions(5yr), dcf_inputs.
+    """
+    try:
+        t = yf.Ticker(ticker)
+        info = t.info or {}
+        inc, cf = t.income_stmt, t.cashflow
+        years = [str(c)[:10] for c in inc.columns][:5] if inc is not None and not inc.empty else []
+
+        total_debt = _safe(info.get("totalDebt"), 0) or 0
+        total_cash = _safe(info.get("totalCash"), 0) or 0
+        net_debt = total_debt - total_cash
+
+        roic = None
+        try:
+            ebit = _safe(inc.loc["EBIT"].iloc[0]) if (inc is not None and "EBIT" in inc.index) else None
+            tax_rate = _safe(inc.loc["Tax Rate For Calcs"].iloc[0]) if (inc is not None and "Tax Rate For Calcs" in inc.index) else 0.21
+            pb, mcap = _safe(info.get("priceToBook")), _safe(info.get("marketCap"))
+            book_equity = (mcap / pb) if (pb and mcap) else None
+            if ebit is not None and book_equity:
+                invested = total_debt + book_equity - total_cash
+                if invested and invested > 0:
+                    roic = round(ebit * (1 - (tax_rate if tax_rate is not None else 0.21)) / invested, 4)
+        except Exception:
+            roic = None
+
+        fcf_hist = _series_list(cf, "Free Cash Flow", 5, 1e9)
+        fcf_clean = [v for v in fcf_hist if v is not None]
+        fcf_3yr = round(sum(fcf_clean[:3]) / len(fcf_clean[:3]), 2) if fcf_clean[:3] else None
+
+        return {
+            "ticker": ticker,
+            "profile": {
+                "name": info.get("shortName"),
+                "sector": info.get("sector"),
+                "industry": info.get("industry"),
+                "market_cap_usd": _safe(info.get("marketCap")),
+                "enterprise_value_usd": _safe(info.get("enterpriseValue")),
+            },
+            "valuation": {
+                "trailing_pe": _safe(info.get("trailingPE")),
+                "forward_pe": _safe(info.get("forwardPE")),
+                "price_to_book": _safe(info.get("priceToBook")),
+                "ev_to_ebitda": _safe(info.get("enterpriseToEbitda")),
+                "peg_ratio": _safe(info.get("pegRatio")),
+                "dividend_yield": _safe(info.get("dividendYield")),
+            },
+            "profitability": {
+                "gross_margin": _safe(info.get("grossMargins")),
+                "operating_margin": _safe(info.get("operatingMargins")),
+                "net_margin": _safe(info.get("profitMargins")),
+                "roe": _safe(info.get("returnOnEquity")),
+                "roa": _safe(info.get("returnOnAssets")),
+                "roic_approx": roic,
+            },
+            "growth": {
+                "revenue_growth_yoy": _safe(info.get("revenueGrowth")),
+                "earnings_growth_yoy": _safe(info.get("earningsGrowth")),
+            },
+            "health": {
+                "total_debt_usd": total_debt,
+                "total_cash_usd": total_cash,
+                "net_debt_usd": net_debt,
+                "debt_to_equity": _safe(info.get("debtToEquity")),
+                "current_ratio": _safe(info.get("currentRatio")),
+            },
+            "trends_billions": {
+                "fiscal_years": years,
+                "revenue": _series_list(inc, "Total Revenue", 5, 1e9),
+                "ebit": _series_list(inc, "EBIT", 5, 1e9),
+                "net_income": _series_list(inc, "Net Income", 5, 1e9),
+                "diluted_eps": _series_list(inc, "Diluted EPS", 5, 1.0),
+                "free_cash_flow": fcf_hist,
+                "operating_cash_flow": _series_list(cf, "Operating Cash Flow", 5, 1e9),
+                "capex": _series_list(cf, "Capital Expenditure", 5, 1e9),
+            },
+            "dcf_inputs": {
+                "latest_fcf_usd": (fcf_clean[0] * 1e9) if fcf_clean else None,
+                "fcf_3yr_avg_usd": (fcf_3yr * 1e9) if fcf_3yr else None,
+                "shares_outstanding": _safe(info.get("sharesOutstanding")),
+                "net_debt_usd": net_debt,
+                "beta": _safe(info.get("beta")),
+                "current_price": _safe(info.get("currentPrice") or info.get("regularMarketPrice")),
+            },
+        }
+    except Exception as e:
+        return {"error": f"yfinance financials fetch failed for {ticker}: {e}"}
+
+
+@mcp.tool()
+def dcf_valuation(base_fcf=None, shares_outstanding=None, ticker=None, growth_rate=0.10,
+                  years=5, terminal_growth=0.025, discount_rate=None, net_debt=0.0):
+    """Two-stage DCF intrinsic value per share.
+
+    Provide explicit (base_fcf, shares_outstanding) OR a `ticker` to auto-fetch
+    base_fcf (3yr-avg FCF), shares, net_debt, and a CAPM cost-of-equity discount rate.
+    Explicit args override auto-fetched values. Currency follows inputs (USD for tickers).
+
+    Args:
+        base_fcf: Starting free cash flow (raw currency). Auto from ticker if omitted.
+        shares_outstanding: Diluted shares. Auto from ticker if omitted.
+        ticker: US ticker to auto-fill inputs (e.g., "NVDA").
+        growth_rate: Stage-1 annual FCF growth (default 0.10).
+        years: Stage-1 projection years (default 5).
+        terminal_growth: Perpetual growth after stage 1 (default 0.025).
+        discount_rate: WACC/cost of equity. Auto via CAPM (rf 4.2% + beta*5%) if omitted.
+        net_debt: Debt minus cash (subtracted from EV). Auto from ticker if omitted.
+
+    Returns:
+        dict with intrinsic_value_per_share, breakdown, sensitivity grid, and (with ticker)
+        current_price + upside_pct.
+    """
+    current_price = beta = None
+    try:
+        if ticker:
+            yt = yf.Ticker(ticker)
+            info = yt.info or {}
+            if base_fcf is None:
+                cf = yt.cashflow
+                fcfs = [float(v) for v in cf.loc["Free Cash Flow"].tolist()[:3] if pd.notna(v)] \
+                    if (cf is not None and "Free Cash Flow" in cf.index) else []
+                base_fcf = sum(fcfs) / len(fcfs) if fcfs else _safe(info.get("freeCashflow"))
+            if shares_outstanding is None:
+                shares_outstanding = _safe(info.get("sharesOutstanding"))
+            if not net_debt:
+                net_debt = (_safe(info.get("totalDebt"), 0) or 0) - (_safe(info.get("totalCash"), 0) or 0)
+            beta = _safe(info.get("beta"))
+            if discount_rate is None and beta is not None:
+                discount_rate = round(0.042 + beta * 0.05, 4)  # CAPM: rf + beta*ERP
+            current_price = _safe(info.get("currentPrice") or info.get("regularMarketPrice"))
+
+        if discount_rate is None:
+            discount_rate = 0.09
+        if base_fcf is None or shares_outstanding is None:
+            return {"error": "Need base_fcf and shares_outstanding (or a valid ticker)."}
+        if base_fcf <= 0:
+            return {"error": f"base_fcf non-positive ({base_fcf}); DCF not meaningful for negative-FCF firms."}
+        if discount_rate <= terminal_growth:
+            return {"error": f"discount_rate ({discount_rate}) must exceed terminal_growth ({terminal_growth})."}
+
+        def _dcf(fcf0, g, wacc, tg, yrs, nd, sh):
+            pv, fcf = 0.0, fcf0
+            for k in range(1, yrs + 1):
+                fcf *= (1 + g)
+                pv += fcf / (1 + wacc) ** k
+            tv = fcf * (1 + tg) / (wacc - tg)
+            pv_tv = tv / (1 + wacc) ** yrs
+            ev = pv + pv_tv
+            eq = ev - nd
+            return pv, pv_tv, ev, eq, eq / sh
+
+        pv_s1, pv_tv, ev, equity, iv = _dcf(
+            base_fcf, growth_rate, discount_rate, terminal_growth, years, net_debt, shares_outstanding)
+
+        sens = {}
+        for dw in (-0.01, 0.0, 0.01):
+            w = round(discount_rate + dw, 4)
+            if w <= terminal_growth:
+                continue
+            sens[f"wacc={w:.1%}"] = {
+                f"g={round(growth_rate + dg, 4):.0%}": round(
+                    _dcf(base_fcf, growth_rate + dg, w, terminal_growth, years, net_debt, shares_outstanding)[4], 2)
+                for dg in (-0.02, 0.0, 0.02)
+            }
+
+        out = {
+            "assumptions": {
+                "base_fcf": round(base_fcf, 2), "growth_rate": growth_rate, "years": years,
+                "terminal_growth": terminal_growth, "discount_rate": discount_rate,
+                "net_debt": round(net_debt, 2), "shares_outstanding": shares_outstanding, "beta": beta,
+                "discount_rate_method": "CAPM (rf 4.2% + beta*5%)" if (ticker and beta is not None) else "manual/default",
+            },
+            "breakdown": {
+                "pv_stage1": round(pv_s1, 2), "pv_terminal": round(pv_tv, 2),
+                "enterprise_value": round(ev, 2), "equity_value": round(equity, 2),
+            },
+            "intrinsic_value_per_share": round(iv, 2),
+            "sensitivity_per_share": sens,
+        }
+        if current_price:
+            out["current_price"] = current_price
+            out["upside_pct"] = round((iv / current_price - 1) * 100, 1)
+        return out
+    except Exception as e:
+        return {"error": f"DCF failed: {e}"}
+
+
 def main() -> None:
     mcp.run()
 

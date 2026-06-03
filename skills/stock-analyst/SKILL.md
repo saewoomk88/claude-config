@@ -17,11 +17,48 @@ description: 국장(KOSPI/KOSDAQ) 또는 미장(NYSE/NASDAQ) 종목의 티커나
 | 4. 차트 & 기술적 분석 | 위 도구의 `indicators` 필드 | RSI(14), MACD, MA(5/20/60/120/200), Stochastic, Bollinger 정확 산출 |
 | 수급 (국장 한정) | `mcp__stock-data__get_korean_investor_trading(ticker)` | 외인/기관/개인 5일 |
 | 티커 검색 | `mcp__stock-data__search_korean_ticker(name)` | 회사명 → 종목코드 |
+| 🆕 재무 심층 (미장) | `mcp__stock-data__get_us_financials(ticker)` | 5년 매출·EBIT·순익·EPS·FCF + ROE/ROA/ROIC·마진·부채/현금 + DCF 입력 |
+| 🆕 내재가치 DCF | `mcp__stock-data__dcf_valuation(ticker=...)` | 2단계 DCF 1주당 내재가치 + 민감도 + 상승여력 |
 
 **워크플로우 변화**:
 - MCP 사용 시 차트 섹션의 RSI/MA 추정 금지 — 실제 값으로 직접 인용
 - WebFetch는 **컨센서스(증권사 리포트)·뉴스·정성 분석**용으로 한정
 - FnGuide·Investing.com WebFetch는 PER/PBR/재무제표·애널리스트 목표가용으로 계속 사용
+
+### 🆕 심화 모드: 재무 심층 + 내재가치(DCF) — '공부'용
+사용자가 "심층/깊게/재무분석/내재가치/DCF/밸류에이션/적정주가" 등을 요청하거나 종목을 진지하게 공부하려는 맥락이면, 기본 7섹션에 **아래 두 섹션을 추가**한다.
+
+**도구 흐름 (미장)**:
+1. `get_us_financials(ticker)` → 5년 재무 추세·수익성(ROIC)·건전성 + `dcf_inputs` 확보
+2. `dcf_valuation(ticker=..., growth_rate=g, years=5, terminal_growth=0.025)` → 내재가치
+   - 자동: base_fcf(3년평균 FCF)·발행주식수·순부채·CAPM 할인율(rf 4.2%+β×5%) 자동 산출
+   - **성장주는 base_fcf=latest_fcf, growth_rate를 합리적으로 직접 지정**(3년평균·CAPM은 보수적)
+   - 결과의 `sensitivity_per_share`(할인율 ±1%·성장 ±2% 그리드)를 반드시 함께 제시
+
+**추가 리포트 섹션 템플릿**:
+
+## 2-B. 재무 심층 (5년 추세)
+| 항목 | Y-4 | Y-3 | Y-2 | Y-1 | 최근 | 해석 |
+|---|---|---|---|---|---|---|
+| 매출(B) | | | | | | 성장률 추세 |
+| 영업이익(EBIT) | | | | | | |
+| 순이익 | | | | | | |
+| FCF | | | | | | 현금창출력 |
+- **수익성**: ROE __% / ROA __% / **ROIC __%** (ROIC>WACC면 가치창출 기업)
+- **건전성**: 부채비율 __ / 유동비율 __ / 순부채(또는 순현금) __
+- **현금흐름의 질**: FCF 추세 + CapEx 강도(자본집약도)
+
+## 3-B. 내재가치 (DCF) 밸류에이션
+- **가정**: base FCF __ / 성장 __%(5년) / 영구성장 __% / 할인율(WACC) __%
+- **결과**: 1주당 내재가치 **__** vs 현재가 **__** → 상승여력 **__%**
+- **민감도**(할인율 × 성장 그리드)를 표로 첨부 (`sensitivity_per_share` 그대로)
+- **해석 한 줄**: 고베타·고성장주는 DCF가 보수적 → '바닥값' 점검 + 역DCF로 시장 기대 역산
+
+> ⚠️ **DCF 사용 주의**:
+> 1. 고베타·고성장주는 CAPM 할인율이 높아 내재가치가 낮게 나옴(**버그 아님**) → 할인율을 직접 조정하거나 '시장이 가정하는 성장률'을 역산(reverse DCF)해 해석.
+> 2. **음수 FCF 기업은 DCF 부적합** → PSR·EV/Sales 등 대체 멀티플 사용(도구가 가드로 막음).
+> 3. 국장 종목은 아직 `get_us_financials` 미지원(yfinance 한정) → FnGuide WebFetch로 FCF·주식수 확보 후 `dcf_valuation(base_fcf=, shares_outstanding=, net_debt=)` 수동 호출.
+
 
 ## 워크플로우
 
