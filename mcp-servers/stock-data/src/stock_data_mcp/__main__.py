@@ -433,6 +433,13 @@ def dcf_valuation(base_fcf=None, shares_outstanding=None, ticker=None, growth_ra
         dict with intrinsic_value_per_share, breakdown, sensitivity grid, and (with ticker)
         current_price + upside_pct.
     """
+    # MCP 레이어가 숫자 인자를 문자열로 전달할 수 있음 → float 강제 변환
+    def _f(x):
+        return None if x in (None, "") else float(x)
+    base_fcf, shares_outstanding, discount_rate = _f(base_fcf), _f(shares_outstanding), _f(discount_rate)
+    growth_rate, terminal_growth = float(growth_rate), float(terminal_growth)
+    net_debt, years = float(net_debt or 0), int(float(years))
+
     current_price = beta = None
     try:
         if ticker:
